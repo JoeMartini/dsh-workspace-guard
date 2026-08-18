@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      # Typecheck + test happen inside a pinned deepseek-harness checkout
+      # so workspace:* tsconfig references resolve.
+      - name: Checkout deepseek-harness
+        uses: actions/checkout@v4
+        with:
+          repository: deepseek-ai/deepseek-harness
+          path: harness
+
+      - name: Checkout plugin into the harness workspace
+        uses: actions/checkout@v4
+        with:
+          path: harness/packages/extensions/workspace-guard
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: harness/pnpm-lock.yaml
+
+      - name: Install
+        working-directory: harness
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build
+        working-directory: harness/packages/extensions/workspace-guard
+        run: npm run build
+
+      - name: Test
+        working-directory: harness
+        run: pnpm exec vitest run packages/extensions/workspace-guard/tests
