@@ -4,13 +4,16 @@
  * are rejected before they reach the host filesystem or the agent loop.
  *
  * dsh has no pre-create events for directory-picker, workspace registry, or
- * agent creation, so this plugin monkey-patches three service methods:
+ * agent creation, so this plugin monkey-patches service methods:
  *
  *   - `ctx.directoryPicker.capability().list` — limits browse scope
  *   - `ctx.directoryPicker.capability().createDirectory` — limits mkdir scope
  *   - `ctx.workspaceRegistry.create` — blocks workspace registration
  *   - `ctx.workspaceRegistry.resolveByPath` — blocks lookups outside root
- *   - `ctx.agents.create` — blocks session creation with an out-of-root cwd
+ *   - `ctx.agents.create` — rejects session creation with an out-of-root cwd
+ *   - `ctx.sandboxPolicy.resolve` — forces per-session workspaceRoot to the
+ *     guard root so landlock/bwrap confines bash/file writes to the root,
+ *     regardless of the session's cwd
  *
  * Each patch stores the original binding and restores it on disposal
  * (HMR-safe).
@@ -26,6 +29,7 @@ import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
 import type { DirectoryEntry, DirectoryListing } from '@deepseek-ai/dsh-host-directory-picker'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-sandbox-policy'
 
 export const name = 'workspace-guard'
 export const inject = ['directoryPicker', 'workspaceRegistry', 'agents']
@@ -169,7 +173,7 @@ export function apply(ctx: Context, config: Config) {
       registry.resolveByPath = originalResolveByPath
     })
 
-    // ── 3. Agent creation: guard cwd in session meta ──
+    // ── 3. Agent creation: reject out-of-root cwd ──
     const agents = ctx.agents
     const originalAgentsCreate = agents.create.bind(agents)
 
@@ -185,7 +189,30 @@ export function apply(ctx: Context, config: Config) {
       agents.create = originalAgentsCreate
     })
 
-    // ── Restore all on dispose (HMR safety) ──
     return () => restore.forEach(fn => fn())
+  })
+
+  // ── 4. Sandbox policy: force workspaceRoot to guard root ──
+  // sandbox-policy.resolve() returns { mode, workspaceRoot: session?.header.cwd ?? this.workspaceRoot }.
+  // The session cwd may be process.cwd() (outside root). Override resolve() to
+  // always return the guard root as workspaceRoot for workspace-write mode, so
+  // landlock/bwrap confines bash/file writes to the guard root.
+  ctx.inject(['sandboxPolicy'], (sandboxCtx) => {
+    sandboxCtx.effect(() => {
+      const policy = sandboxCtx.sandboxPolicy
+      const originalResolve = policy.resolve.bind(policy)
+
+      policy.resolve = (session?: Parameters<typeof originalResolve>[0]) => {
+        const resolved = originalResolve(session)
+        if (resolved.mode === 'workspace-write') {
+          return { ...resolved, workspaceRoot: root }
+        }
+        return resolved
+      }
+
+      return () => {
+        policy.resolve = originalResolve
+      }
+    })
   })
 }
