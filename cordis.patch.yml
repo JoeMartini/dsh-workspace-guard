@@ -1,9 +1,9 @@
 # The workspace-guard bundle: inserts the guard plugin after the services
 # it wraps (directoryPicker, workspaceRegistry, agents) have mounted.
-# A profile lists this bundle to enable path-containment enforcement.
 #
-# The root defaults to $DSH_WORKSPACE_ROOT || process.cwd(). Override in
-# the profile's cordis.patch.yml to pin the tenant directory:
+# The root defaults to $DSH_WORKSPACE_ROOT || process.cwd(). To customize,
+# DO NOT insert a second workspace-guard entry — instead, override by id
+# in your profile's cordis.patch.yml:
 #
 #   - id: workspace-guard
 #     config:

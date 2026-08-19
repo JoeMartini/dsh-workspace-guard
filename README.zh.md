@@ -25,15 +25,16 @@ Workspace Guard — 将目录浏览、工作区创建和会话 `cwd` 限制在�
 dsh plugin --profile <name> add dsh-workspace-guard
 ```
 
-然后在 profile 的 `cordis.patch.yml` 中配置 root：
+然后在 profile 的 `cordis.patch.yml` 中覆盖 root（**不要用 insert**，bundle
+已自动插入；用 override 覆盖配置即可）：
 
 ```yaml
-- insert:
-    - id: workspace-guard
-      name: 'dsh-workspace-guard'
-      config:
-        root: /workspaces/tenant-a
+- id: workspace-guard
+  config:
+    root: /workspaces/tenant-a
 ```
+
+也可以设置 `DSH_WORKSPACE_ROOT` 环境变量，省略 patch 覆盖。
 
 | 配置项 | 类型 | 必填 | 说明 |
 |---|---|---|---|

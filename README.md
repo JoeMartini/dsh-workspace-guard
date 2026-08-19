@@ -25,15 +25,19 @@ Each check uses `fs.realpath` canonicalization on both the target and the root, 
 dsh plugin --profile <name> add dsh-workspace-guard
 ```
 
-Then configure the root in the profile's `cordis.patch.yml`:
+The bundle's own `cordis.patch.yml` already inserts the plugin with a
+default root (`$DSH_WORKSPACE_ROOT` env var, falling back to `process.cwd()`).
+To customize the root, **override** by id in your profile's `cordis.patch.yml`
+(do not `insert` a second entry — that causes a duplicate-id error):
 
 ```yaml
-- insert:
-    - id: workspace-guard
-      name: 'dsh-workspace-guard'
-      config:
-        root: /workspaces/tenant-a
+- id: workspace-guard
+  config:
+    root: /workspaces/tenant-a
 ```
+
+Alternatively, set the `DSH_WORKSPACE_ROOT` environment variable and omit
+the patch override entirely.
 
 | Config key | Type | Required | Description |
 |---|---|---|---|
