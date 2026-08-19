@@ -15,8 +15,8 @@
  *     guard root so landlock/bwrap confines bash/file writes to the root,
  *     regardless of the session's cwd
  *
- * Each patch stores the original binding and restores it on disposal
- * (HMR-safe).
+ * All patches are registered inside a single ctx.effect for consistent HMR
+ * disposal ordering.
  *
  * @module @deepseek-ai/dsh-workspace-guard
  */
@@ -189,20 +189,19 @@ export function apply(ctx: Context, config: Config) {
       agents.create = originalAgentsCreate
     })
 
-    return () => restore.forEach(fn => fn())
-  })
+    // ── 4. Sandbox policy: force workspaceRoot to guard root ──
+    // sandbox-policy.resolve() returns { mode, workspaceRoot: session?.header.cwd ?? this.workspaceRoot }.
+    // The session cwd may be process.cwd() (outside root). Override resolve() to
+    // always return the guard root as workspaceRoot for workspace-write mode, so
+    // landlock/bwrap confines bash/file writes to the guard root.
+    //
+    // Uses ctx.get('sandboxPolicy') for optional injection — the service may
+    // not be composed (e.g. headless profile without sandbox-policy).
+    const sandboxPolicy = ctx.get('sandboxPolicy')
+    if (sandboxPolicy !== undefined) {
+      const originalResolve = sandboxPolicy.resolve.bind(sandboxPolicy)
 
-  // ── 4. Sandbox policy: force workspaceRoot to guard root ──
-  // sandbox-policy.resolve() returns { mode, workspaceRoot: session?.header.cwd ?? this.workspaceRoot }.
-  // The session cwd may be process.cwd() (outside root). Override resolve() to
-  // always return the guard root as workspaceRoot for workspace-write mode, so
-  // landlock/bwrap confines bash/file writes to the guard root.
-  ctx.inject(['sandboxPolicy'], (sandboxCtx) => {
-    sandboxCtx.effect(() => {
-      const policy = sandboxCtx.sandboxPolicy
-      const originalResolve = policy.resolve.bind(policy)
-
-      policy.resolve = (session?: Parameters<typeof originalResolve>[0]) => {
+      sandboxPolicy.resolve = (session?: Parameters<typeof originalResolve>[0]) => {
         const resolved = originalResolve(session)
         if (resolved.mode === 'workspace-write') {
           return { ...resolved, workspaceRoot: root }
@@ -210,9 +209,12 @@ export function apply(ctx: Context, config: Config) {
         return resolved
       }
 
-      return () => {
-        policy.resolve = originalResolve
-      }
-    })
+      restore.push(() => {
+        sandboxPolicy.resolve = originalResolve
+      })
+    }
+
+    // ── Restore all on dispose (HMR safety) ──
+    return () => restore.forEach(fn => fn())
   })
 }
